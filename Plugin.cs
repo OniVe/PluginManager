@@ -21,7 +21,7 @@ namespace PluginManager
                 foreach (var file in files)
                 {
                     filename = file.Name.ToLower();
-                    if (!settings.SkipList.Contains(filename))
+                    if (!settings.SkipList.Contains(filename) && !settings.WatchList.Exists((e) => e.Name == filename))
                     {
                         if (ExtendedPlugins.HasEntryPoint<IExtendedPlugin>(filename))
                         {

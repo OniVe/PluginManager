@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Reflection;
+using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -49,10 +50,9 @@ namespace PluginManager.Core
 
             //Parallel.ForEach<ExtendedPlugin>(m_plugins, (plugin) => { plugin... });
             foreach (var plugin in m_plugins)
-            {
                 try
                 {
-                    HttpWebRequest request = (HttpWebRequest)HttpWebRequest.Create(string.Format(repositoryURL, plugin.Instance.UpdateInfo.UserName, plugin.Instance.UpdateInfo.RepositoryName));
+                    HttpWebRequest request = (HttpWebRequest)WebRequest.Create(string.Format(repositoryURL, plugin.Instance.UpdateInfo.UserName, plugin.Instance.UpdateInfo.RepositoryName));
                     request.KeepAlive = false;
                     request.UserAgent = ".NET Framework";
                     request.ContentType = "application/json";
@@ -60,14 +60,21 @@ namespace PluginManager.Core
                     var response = (HttpWebResponse)request.GetResponse();
                     if (response.StatusCode == HttpStatusCode.OK)
                         using (Stream webStream = response.GetResponseStream())
-                        using (FileStream fStream = new FileStream(Environment.CurrentDirectory + $@"\{plugin.Name}.data.json", FileMode.OpenOrCreate))
-                            webStream.CopyTo(fStream);
+                        {
+                            var release = Serialization.GitHubAPI.Release.Deserialize(webStream);
+                            if (release != null)
+                            {
+
+                            }
+                            // DEBUG
+                            //using (FileStream fileStream = new FileStream(Environment.CurrentDirectory + $@"\{plugin.Name}.data.json", FileMode.OpenOrCreate))
+                            //  Serialization.GitData.Release.Serialize(fileStream, release);
+                        }
                 }
                 catch (Exception e)
                 {
                     Utilities.Log.WriteLineAndConsole($"Plugin \"{plugin.Name}\" update error: {e.ToString()}");
                 }
-            }
 
             Utilities.Log.WriteLineAndConsole("Check plugins updates END");
         }
