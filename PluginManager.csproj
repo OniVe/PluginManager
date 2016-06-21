@@ -78,11 +78,6 @@
     <Compile Include="Settings.cs" />
     <Compile Include="Utilities.cs" />
   </ItemGroup>
-  <ItemGroup>
-    <None Include="PluginManager.config">
-      <SubType>Designer</SubType>
-    </None>
-  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PostBuildEvent>copy $(TargetPath) "F:\SteamLibrary\steamapps\common\SpaceEngineers\Bin64"</PostBuildEvent>

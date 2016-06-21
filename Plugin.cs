@@ -3,6 +3,7 @@ using Sandbox;
 using System;
 using System.IO;
 using VRage.Plugins;
+using PluginManager.Utilities;
 
 namespace PluginManager
 {
@@ -12,7 +13,7 @@ namespace PluginManager
         public void Init(object gameInstance)
         {
             settings = Settings.Load();
-            if (settings.AutomaticSearchPlugins)
+            if (settings.AutomaticPluginsSearch)
             {
                 Utilities.Log.WriteLineAndConsole($"Search plugins in the root directory: {Environment.CurrentDirectory}");
                 DirectoryInfo directory = new DirectoryInfo(Environment.CurrentDirectory);
@@ -21,12 +22,12 @@ namespace PluginManager
                 foreach (var file in files)
                 {
                     filename = file.Name.ToLower();
-                    if (!settings.SkipList.Contains(filename) && !settings.WatchList.Exists((e) => e.Name == filename))
+                    if (!settings.SkipList.Exists((e) => e == filename) && !settings.WatchList.Exists((e) => e.Name == filename))
                     {
-                        if (ExtendedPlugins.HasEntryPoint<IExtendedPlugin>(filename))
+                        if (ExtendedPlugins.HasInterface<IPlugin>(filename))
                         {
                             Utilities.Log.WriteLineAndConsole($"Add file in WatchList: {filename}");
-                            settings.WatchList.Add(new Settings.Library() { Name = filename });
+                            settings.WatchList.Add(new Settings.Library(filename));
                         }
                         else
                         {
@@ -50,21 +51,5 @@ namespace PluginManager
 
             ExtendedPlugins.Unload();
         }
-    }
-
-    public struct UpdateInfo
-    {
-        public string UserName;
-        public string RepositoryName;
-        public string FileName;
-        public string Version;
-    }
-
-    public interface IExtendedPlugin : IDisposable
-    {
-        UpdateInfo UpdateInfo { get; }
-
-        void Init(object gameInstance);
-        void Update();
     }
 }

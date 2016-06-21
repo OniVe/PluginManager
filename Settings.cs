@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Xml.Serialization;
 
 namespace PluginManager
@@ -10,6 +11,13 @@ namespace PluginManager
     public class Settings
     {
         private const string FILE_NAME = "PluginManager.config";
+
+        #region Default Skip List
+        private static readonly HashSet<string> defaultSkipList = new HashSet<string>() {
+            (new FileInfo(Assembly.GetExecutingAssembly().Location)).Name.ToLower(),
+            "sandbox.game.dll"
+        };
+        #endregion
 
         public static Settings Load()
         {
@@ -21,20 +29,19 @@ namespace PluginManager
                 {
                     settings = (Settings)formatter.Deserialize(fStream);
                 }
+                if (settings == null)
+                    settings = new Settings();
+                else
+                    settings.SkipList.UnionWith(defaultSkipList);
             }
-            catch (Exception e)
+            catch
             {
-                Utilities.Log.WriteLineAndConsole($"Error load settings: {e.ToString()}");
+                //Utilities.Log.WriteLineAndConsole($"Error load settings: {e.ToString()}");
                 settings = new Settings();
-                settings.AutomaticSearchPlugins = true;
             }
-
-            if (settings.WatchList == null) settings.WatchList = new List<Library>();
-            if (settings.SkipList == null) settings.SkipList = new List<string>();
 
             return settings;
         }
-
         public void Save()
         {
             try
@@ -52,22 +59,53 @@ namespace PluginManager
             }
         }
 
-        public bool AutomaticSearchPlugins { get; set; }
-        public List<Library> WatchList { get; set; }
-        public List<string> SkipList { get; set; }
+        public bool AutomaticPluginsSearch { get; set; }
 
-        private Settings() { }
+        [XmlArrayItem("Library")]
+        public HashSet<Library> WatchList { get; set; }
+
+        [XmlArrayItem("Library")]
+        public HashSet<string> SkipList { get; set; }
+
+        private Settings()
+        {
+            AutomaticPluginsSearch = true;
+            WatchList = new HashSet<Library>();
+            SkipList = new HashSet<string>();
+            SkipList.UnionWith(defaultSkipList);
+        }
 
         [Serializable]
-        [XmlRoot("Library")]
         public class Library
         {
+            [XmlIgnore]
+            private string name;
+
             [XmlText]
-            public string Name { get; set; }
+            public string Name
+            {
+                get { return name; }
+                set { name = value == null ? null : value.ToLower(); }
+            }
             [XmlAttribute]
             public string Version { get; set; }
             [XmlAttribute]
-            public DateTime UpToDate { get; set; }
+            public DateTime LastUpdate { get; set; }
+            [XmlAttribute]
+            public DateTime LastCheck { get; set; }
+
+            public Library()
+            {
+                Name = null;
+                Version = null;
+                LastUpdate = DateTime.MinValue;
+            }
+            public Library(string name) : base()
+            {
+                Name = name;
+            }
+
+            public override int GetHashCode() => name == null ? string.Empty.GetHashCode() : name.GetHashCode();
         }
     }
 }

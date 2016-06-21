@@ -51,4 +51,15 @@ namespace PluginManager.Utilities
             }
         }
     }
+
+    public static class HashSetExtension
+    {
+        public static bool Exists<T>(this System.Collections.Generic.HashSet<T> self, Predicate<T> match)
+        {
+            foreach (var e in self) if (match(e)) return true;
+
+            return false;
+        }
+    }
+
 }

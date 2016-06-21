@@ -4,17 +4,18 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Reflection;
-using System.Runtime.Serialization.Json;
-using System.Text;
 using System.Threading.Tasks;
+using VRage.Plugins;
 
 namespace PluginManager.Core
 {
     class ExtendedPlugins
     {
+        private const string RepositoryURL = "https://api.github.com/repos/{0}/{1}/releases/latest";
+
         private static List<ExtendedPlugin> m_plugins = new List<ExtendedPlugin>();
 
-        public static bool HasEntryPoint<T>(string filename)
+        public static bool HasInterface<T>(string filename)
         {
             try
             {
@@ -26,7 +27,7 @@ namespace PluginManager.Core
             return false;
         }
 
-        public static void Register(List<Settings.Library> files)
+        public static void Register(HashSet<Settings.Library> files)
         {
             ExtendedPlugin plugin;
             bool success;
@@ -36,45 +37,61 @@ namespace PluginManager.Core
                 if (success)
                 {
                     if (string.IsNullOrEmpty(file.Version)) file.Version = plugin.Version;
-                    if (file.UpToDate == null) file.UpToDate = new DateTime(1900, 1, 1);
+                    if (file.LastUpdate == null) file.LastUpdate = DateTime.MinValue;
                     m_plugins.Add(plugin);
                 }
             }
         }
 
+        /*private static async Task<Serialization.GitHubAPI.Release> GetGitHubReleasAsync(ExtendedPlugin plugin)
+        {
+            try
+            {
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(string.Format(RepositoryURL, plugin.Instance.UpdateInfo.UserName, plugin.Instance.UpdateInfo.RepositoryName));
+                request.KeepAlive = false;
+                request.UserAgent = ".NET Framework";
+                request.ContentType = "application/json";
+
+                var response = (HttpWebResponse)(await request.GetResponseAsync());
+                if (response.StatusCode == HttpStatusCode.OK)
+                    using (Stream webStream = response.GetResponseStream())
+                        return Serialization.GitHubAPI.Release.Deserialize(webStream);
+            }
+            catch { }
+
+            return null;
+        }
+
+        private static async Task<List<Serialization.GitHubAPI.Release>> GetGitHubReleasesAsync()
+        {
+            List<Task<Serialization.GitHubAPI.Release>> tasks = new List<Task<Serialization.GitHubAPI.Release>>();
+            foreach (var plugin in m_plugins)
+                tasks.Add(GetGitHubReleasAsync(plugin));
+
+            return (await Task.WhenAll(tasks)).ToList();
+        }
+        */
         public static void CheckPluginsUpdates()
         {
-
             Utilities.Log.WriteLineAndConsole("Check plugins updates START");
-            string repositoryURL = "https://api.github.com/repos/{0}/{1}/releases/latest";
 
-            //Parallel.ForEach<ExtendedPlugin>(m_plugins, (plugin) => { plugin... });
             foreach (var plugin in m_plugins)
-                try
-                {
-                    HttpWebRequest request = (HttpWebRequest)WebRequest.Create(string.Format(repositoryURL, plugin.Instance.UpdateInfo.UserName, plugin.Instance.UpdateInfo.RepositoryName));
-                    request.KeepAlive = false;
-                    request.UserAgent = ".NET Framework";
-                    request.ContentType = "application/json";
+            {
+                //[PluginManagerInfoAttribute]
+                //public class Plugin : IPlugin { }
+                var instanceType = plugin.Instance.GetType();
+                var attributeType = plugin.Assembly.GetType(instanceType.Namespace + ".PluginManagerInfoAttribute");
+                if (attributeType == null)
+                    continue;
 
-                    var response = (HttpWebResponse)request.GetResponse();
-                    if (response.StatusCode == HttpStatusCode.OK)
-                        using (Stream webStream = response.GetResponseStream())
-                        {
-                            var release = Serialization.GitHubAPI.Release.Deserialize(webStream);
-                            if (release != null)
-                            {
+                PluginInfo attribute;
+                try { attribute = PluginInfo.Create(instanceType.GetCustomAttribute(attributeType)); }
+                catch { attribute = null; }
 
-                            }
-                            // DEBUG
-                            //using (FileStream fileStream = new FileStream(Environment.CurrentDirectory + $@"\{plugin.Name}.data.json", FileMode.OpenOrCreate))
-                            //  Serialization.GitData.Release.Serialize(fileStream, release);
-                        }
-                }
-                catch (Exception e)
-                {
-                    Utilities.Log.WriteLineAndConsole($"Plugin \"{plugin.Name}\" update error: {e.ToString()}");
-                }
+                if (attribute == null)
+                    continue;
+
+            }
 
             Utilities.Log.WriteLineAndConsole("Check plugins updates END");
         }
@@ -105,7 +122,7 @@ namespace PluginManager.Core
             /// <summary>
             /// First Instance in Assembly
             /// </summary>
-            public IExtendedPlugin Instance { get; private set; }
+            public IPlugin Instance { get; private set; }
 
             private ExtendedPlugin() { }
             public ExtendedPlugin(string name, out bool success)
@@ -113,18 +130,14 @@ namespace PluginManager.Core
                 try
                 {
                     Name = name;
-                    var assembly = Assembly.LoadFrom(name);
-                    var pluginInterfaceClasses = assembly.GetTypes().Where(s => s.GetInterfaces().Contains(typeof(IExtendedPlugin)));
-                    if (pluginInterfaceClasses.Count() > 0)
+                    Assembly = Assembly.LoadFrom(name);
+                    var pluginInterface = Assembly.GetTypes().Where(s => s.GetInterfaces().Contains(typeof(IPlugin))).FirstOrDefault();
+                    if (pluginInterface != null)
                     {
                         var myFileVersionInfo = System.Diagnostics.FileVersionInfo.GetVersionInfo(name);
                         Version = myFileVersionInfo.FileVersion;
-                        foreach (var pluginClass in pluginInterfaceClasses)
-                        {
-                            Utilities.Log.WriteLineAndConsole($"Creating instance of: {name} / {pluginClass.FullName}");
-                            Instance = (IExtendedPlugin)Activator.CreateInstance(pluginClass);
-                            break;
-                        }
+                        Utilities.Log.WriteLineAndConsole($"Creating instance of: {name} / {pluginInterface.FullName}");
+                        Instance = (IPlugin)Activator.CreateInstance(pluginInterface);
                         success = true;
                     }
                     else
@@ -150,6 +163,31 @@ namespace PluginManager.Core
                 Instance = null;
 
                 GC.SuppressFinalize(this);
+            }
+        }
+
+        private class PluginInfo : System.Attribute
+        {
+            public string UserName;
+            public string RepositoryName;
+            public string FileName;
+            public string Version;
+
+            public static PluginInfo Create(dynamic obj)
+            {
+                try
+                {
+                    return new PluginInfo()
+                    {
+                        FileName = obj.FileName,
+                        RepositoryName = obj.RepositoryName,
+                        UserName = obj.UserName,
+                        Version = obj.Version
+                    };
+                }
+                catch { }
+
+                return null;
             }
         }
 
