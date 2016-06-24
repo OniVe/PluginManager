@@ -15,39 +15,47 @@ namespace PluginManager.Core
 
         private static List<ExtendedPlugin> m_plugins = new List<ExtendedPlugin>();
 
-        public static bool HasInterface<T>(string filename)
+        public static bool LibraryHasInterface<T>(string filename)
         {
+            bool result = false;
+            AppDomain domain = AppDomain.CreateDomain("VirtualExtendedPlugins");
             try
             {
-                var assembly = Assembly.LoadFrom(filename);
-                return assembly.GetTypes().Where(s => s.GetInterfaces().Contains(typeof(T))).Count() > 0;
+                Assembly assembly;
+                assembly = domain.Load(new AssemblyName(filename));
+
+                result = assembly.GetTypes().Where(s => s.GetInterfaces().Contains(typeof(T))).Count() > 0;
             }
             catch { }
+            finally
+            {
+                AppDomain.Unload(domain);
+            }
 
-            return false;
+            return result;
         }
 
-        public static void Register(HashSet<Settings.Library> files)
+        public static void Register()
         {
             ExtendedPlugin plugin;
             bool success;
-            foreach (var file in files)
+            foreach (var library in Settings.Instance.WatchList)
             {
-                plugin = new ExtendedPlugin(file.Name, out success);
+                plugin = new ExtendedPlugin(library.Name, out success);
                 if (success)
                 {
-                    if (string.IsNullOrEmpty(file.Version)) file.Version = plugin.Version;
-                    if (file.LastUpdate == null) file.LastUpdate = DateTime.MinValue;
+                    if (string.IsNullOrEmpty(library.Version)) library.Version = plugin.FileVersion;
+                    if (library.LastUpdate == null) library.LastUpdate = DateTime.MinValue;
                     m_plugins.Add(plugin);
                 }
             }
         }
 
-        /*private static async Task<Serialization.GitHubAPI.Release> GetGitHubReleasAsync(ExtendedPlugin plugin)
+        private static async Task<Serialization.GitHubAPI.Release> GetGitHubReleasAsync(ExtendedPlugin plugin)
         {
             try
             {
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(string.Format(RepositoryURL, plugin.Instance.UpdateInfo.UserName, plugin.Instance.UpdateInfo.RepositoryName));
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(string.Format(RepositoryURL, plugin.Info.UserName, plugin.Info.RepositoryName));
                 request.KeepAlive = false;
                 request.UserAgent = ".NET Framework";
                 request.ContentType = "application/json";
@@ -62,38 +70,20 @@ namespace PluginManager.Core
             return null;
         }
 
-        private static async Task<List<Serialization.GitHubAPI.Release>> GetGitHubReleasesAsync()
+        public static void CheckPluginsUpdates()
         {
+            Utilities.Log.WriteLineAndConsole("Check plugins updates...");
+
             List<Task<Serialization.GitHubAPI.Release>> tasks = new List<Task<Serialization.GitHubAPI.Release>>();
             foreach (var plugin in m_plugins)
                 tasks.Add(GetGitHubReleasAsync(plugin));
 
-            return (await Task.WhenAll(tasks)).ToList();
-        }
-        */
-        public static void CheckPluginsUpdates()
-        {
-            Utilities.Log.WriteLineAndConsole("Check plugins updates START");
+            Task.WhenAll(tasks).Wait();
 
-            foreach (var plugin in m_plugins)
+            foreach(var task in tasks)
             {
-                //[PluginManagerInfoAttribute]
-                //public class Plugin : IPlugin { }
-                var instanceType = plugin.Instance.GetType();
-                var attributeType = plugin.Assembly.GetType(instanceType.Namespace + ".PluginManagerInfoAttribute");
-                if (attributeType == null)
-                    continue;
-
-                PluginInfo attribute;
-                try { attribute = PluginInfo.Create(instanceType.GetCustomAttribute(attributeType)); }
-                catch { attribute = null; }
-
-                if (attribute == null)
-                    continue;
-
+                ///----------------------task.Result
             }
-
-            Utilities.Log.WriteLineAndConsole("Check plugins updates END");
         }
 
         public static void Init(object gameInstance)
@@ -117,7 +107,10 @@ namespace PluginManager.Core
         private class ExtendedPlugin : IDisposable
         {
             public string Name { get; private set; }
-            public string Version { get; private set; }
+            public string FileVersion { get; private set; }
+            public PackageInfo Info { get; private set; }
+            public string DomainName { get; private set; }
+            public AppDomain Domain { get; private set; }
             public Assembly Assembly { get; private set; }
             /// <summary>
             /// First Instance in Assembly
@@ -130,25 +123,30 @@ namespace PluginManager.Core
                 try
                 {
                     Name = name;
-                    Assembly = Assembly.LoadFrom(name);
+                    DomainName = Guid.NewGuid().ToString();
+                    Domain = AppDomain.CreateDomain(DomainName);
+                    Assembly = Assembly.Load(new AssemblyName(Name));
                     var pluginInterface = Assembly.GetTypes().Where(s => s.GetInterfaces().Contains(typeof(IPlugin))).FirstOrDefault();
                     if (pluginInterface != null)
                     {
-                        var myFileVersionInfo = System.Diagnostics.FileVersionInfo.GetVersionInfo(name);
-                        Version = myFileVersionInfo.FileVersion;
+                        FileVersion = Assembly.FullName;
                         Utilities.Log.WriteLineAndConsole($"Creating instance of: {name} / {pluginInterface.FullName}");
                         Instance = (IPlugin)Activator.CreateInstance(pluginInterface);
+                        Info = PackageInfo.Create(this);
+
                         success = true;
                     }
                     else
                     {
                         Utilities.Log.WriteLineAndConsole($"Error registration plugin. File: \"{name}\" does not contain an interface \"IExtendedPlugin\"");
+                        AppDomain.Unload(Domain);
                         success = false;
                     }
                 }
                 catch (Exception e)
                 {
                     Utilities.Log.WriteLineAndConsole($"Cannot load Plugin: {name}, Error: {e.ToString()}");
+                    AppDomain.Unload(Domain);
                     success = false;
                 }
             }
@@ -158,31 +156,55 @@ namespace PluginManager.Core
                 if (Instance != null)
                     Instance.Dispose();
 
-                Name = null;
-                Assembly = null;
-                Instance = null;
+                Name = null; DomainName = null; FileVersion = null;
+                Info = null; Instance = null; Assembly = null;
+
+                if (Domain != null)
+                    AppDomain.Unload(Domain);
 
                 GC.SuppressFinalize(this);
             }
         }
 
-        private class PluginInfo : System.Attribute
+        private class PackageInfo : System.Attribute
         {
             public string UserName;
             public string RepositoryName;
-            public string FileName;
-            public string Version;
+            public string ReleaseFileName;
+            public string PackageFileName;
 
-            public static PluginInfo Create(dynamic obj)
+            /// <summary>
+            ///[PluginManagerInfoAttribute]
+            ///public class Plugin : IPlugin { } 
+            /// </summary>
+            /// <param name="plugin"></param>
+            /// <returns></returns>
+            public static PackageInfo Create(ExtendedPlugin plugin)
+            {
+                var instanceType = plugin.Instance.GetType();
+                var attributeType = plugin.Assembly.GetType(instanceType.Namespace + ".PackageInfoAttribute");
+                if (attributeType != null)
+                {
+
+                    PackageInfo attribute;
+                    try { attribute = PackageInfo.Create(instanceType.GetCustomAttribute(attributeType)); }
+                    catch { attribute = null; }
+
+                    if (attribute != null)
+                        return attribute;
+                }
+                return null;
+            }
+            public static PackageInfo Create(dynamic obj)
             {
                 try
                 {
-                    return new PluginInfo()
+                    return new PackageInfo()
                     {
-                        FileName = obj.FileName,
-                        RepositoryName = obj.RepositoryName,
                         UserName = obj.UserName,
-                        Version = obj.Version
+                        RepositoryName = obj.RepositoryName,
+                        ReleaseFileName = obj.FileName,
+                        PackageFileName = obj.PackageFileName
                     };
                 }
                 catch { }

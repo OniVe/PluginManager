@@ -62,4 +62,25 @@ namespace PluginManager.Utilities
         }
     }
 
+    public static class FileStreamExtension
+    {
+        public static byte[] ReadAll(this System.IO.FileStream self)
+        {
+            byte[] bytes = new byte[self.Length];
+            int bytesToRead = (int)self.Length;
+            int bytesRead = 0;
+            int num;
+            while (bytesToRead > 0)
+            {
+                num = self.Read(bytes, bytesRead, bytesToRead);
+                if (num == 0)
+                    break;
+
+                bytesRead += num;
+                bytesToRead -= num;
+            }
+
+            return bytes;
+        }
+    }
 }

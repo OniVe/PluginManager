@@ -11,24 +11,28 @@ namespace PluginManager
     public class Settings
     {
         private const string FILE_NAME = "PluginManager.config";
+        private static XmlSerializer Formatter => new XmlSerializer(typeof(Settings));
 
-        #region Default Skip List
+        #region Default SkipList
         private static readonly HashSet<string> defaultSkipList = new HashSet<string>() {
-            (new FileInfo(Assembly.GetExecutingAssembly().Location)).Name.ToLower(),
-            "sandbox.game.dll"
+            Path.GetFileNameWithoutExtension((new FileInfo(Assembly.GetExecutingAssembly().Location)).Name),
+            "Sandbox.Game",
+            "VRage",
+            "VRage.Game"
         };
         #endregion
 
-        public static Settings Load()
+        private static Settings instance;
+        public static Settings Instance { get { if (instance == null) instance = new Settings(); return instance; } }
+
+        public void Load()
         {
             Settings settings;
             try
             {
-                XmlSerializer formatter = new XmlSerializer(typeof(Settings));
                 using (FileStream fStream = new FileStream(Environment.CurrentDirectory + "\\" + FILE_NAME, FileMode.Open))
-                {
-                    settings = (Settings)formatter.Deserialize(fStream);
-                }
+                    settings = (Settings)Formatter.Deserialize(fStream);
+
                 if (settings == null)
                     settings = new Settings();
                 else
@@ -40,18 +44,16 @@ namespace PluginManager
                 settings = new Settings();
             }
 
-            return settings;
+            this.AutomaticPluginsSearch = settings.AutomaticPluginsSearch;
+            this.WatchList = settings.WatchList;
+            this.SkipList = settings.SkipList;
         }
         public void Save()
         {
             try
             {
-                XmlSerializer formatter = new XmlSerializer(typeof(Settings));
-
                 using (FileStream fStream = new FileStream(Environment.CurrentDirectory + "\\" + FILE_NAME, FileMode.OpenOrCreate))
-                {
-                    formatter.Serialize(fStream, this);
-                }
+                    Formatter.Serialize(fStream, this);
             }
             catch (Exception e)
             {
@@ -61,10 +63,10 @@ namespace PluginManager
 
         public bool AutomaticPluginsSearch { get; set; }
 
-        [XmlArrayItem("Library")]
+        [XmlArrayItem("Assembly")]
         public HashSet<Library> WatchList { get; set; }
 
-        [XmlArrayItem("Library")]
+        [XmlArrayItem("Assembly")]
         public HashSet<string> SkipList { get; set; }
 
         private Settings()
@@ -78,15 +80,8 @@ namespace PluginManager
         [Serializable]
         public class Library
         {
-            [XmlIgnore]
-            private string name;
-
             [XmlText]
-            public string Name
-            {
-                get { return name; }
-                set { name = value == null ? null : value.ToLower(); }
-            }
+            public string Name { get; set; }
             [XmlAttribute]
             public string Version { get; set; }
             [XmlAttribute]
@@ -105,7 +100,7 @@ namespace PluginManager
                 Name = name;
             }
 
-            public override int GetHashCode() => name == null ? string.Empty.GetHashCode() : name.GetHashCode();
+            public override int GetHashCode() => Name == null ? string.Empty.GetHashCode() : Name.ToLower().GetHashCode();
         }
     }
 }
