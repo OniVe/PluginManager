@@ -1,4 +1,4 @@
-# WIP
+# !! Development has been stopped until better times. !!
 # PluginManager (NOT FINAL)
 Space Engineer Plugin Manager
 -
